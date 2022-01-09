@@ -1,0 +1,368 @@
+---
+title: "Credit_card_caseStudy"
+output:
+  html_document: default
+---
+
+#####  Library Used 
+
+```{r message=FALSE,warning=FALSE} 
+library(tidyverse)
+library(lubridate)
+library(knitr)
+library(kableExtra)
+
+```
+
+##### Loading data
+
+```{r message=FALSE }
+cust_acq <- read_csv("credit_data/Customer Acqusition.csv")
+
+repay <- read_csv("credit_data/Repayment.csv")
+
+spend <- read_csv("credit_data/spend.csv")
+
+```
+
+##### Handling Dates
+
+```{r}
+
+spend$Month <- lubridate::dmy(spend$Month)
+repay$Month <- lubridate::dmy(repay$Month)
+
+```
+
+#### Ques 1 
+
+```{r}
+# Part A : Incase age is less than 18, replace it with mean of age values.
+
+cust_acq$Age[cust_acq$Age<18] <- mean(cust_acq$Age)
+           
+summary(cust_acq$Age) 
+  
+         
+# Part B : Incase spend amount is more than the limit,replace it with 50% of that customer’s limit. 
+
+data <-  spend %>% left_join(cust_acq,by="Customer")
+
+Mod_spend_data <- data %>% 
+                  mutate(
+                  Amount = ifelse(data$Amount>data$Limit,0.5*(data$Limit),data$Amount)) %>% 
+                  rename("Date" = "Month") %>% 
+                  mutate(Month = month(Date,label = T),Year = year(Date) )
+
+knitr::kable(Mod_spend_data,caption = "Modified Spend Data") %>% kable_styling(full_width = T) %>% kableExtra::scroll_box(height = "500px",width ="100%")
+
+
+
+# Part C: Incase the repayment amount is more than the limit, replace the repayment with the limit.
+
+repay$`SL No:`[is.na(repay$`SL No:`)] <- 1 # Treating 1 Na present.
+
+repay_data <-  repay %>% left_join(cust_acq,by="Customer") %>% 
+                arrange(Customer) 
+
+modified_repay_data <- repay_data %>% 
+                       mutate(
+                       Amount=ifelse(Amount>Limit,Limit,Amount))
+
+modified_repay_data <-  modified_repay_data %>% 
+                        rename("Date"="Month") %>% 
+                        mutate(Month = month(Date,label = T),Year = year(Date) ) 
+
+knitr::kable(modified_repay_data,caption = "Modified Repay Data") %>% kable_styling(full_width = T) %>% kableExtra::scroll_box(height = "400px",width = "100%")
+
+
+```
+
+#### Ques2 : From the above dataset create the following summaries:
+
+```{r message=FALSE}
+# a:Distinct Customers 
+
+dist_cust <- Mod_spend_data %>% distinct(Customer) %>% nrow() 
+paste0("No of Distinct customers are ",dist_cust)
+
+# b:Distinct Categories # 
+## Note ##  
+## Question did not mention categories of any specific column.
+## Product, Type , Segment and Company, each of these column have different categories.
+
+# Categories in Type
+Mod_spend_data %>% distinct(Type) %>% nrow()
+
+# Categories in Segment
+Mod_spend_data %>% distinct(Segment) %>% nrow()
+
+# Categories in Company
+Mod_spend_data %>% distinct(Company) %>% nrow()
+
+# Categories in Product
+Mod_spend_data %>% distinct(Product) %>% nrow()
+  
+# c : Average monthly spend by customers.
+  
+Avg_Spend <- Mod_spend_data %>% 
+             group_by(Customer,Month) %>% 
+             summarise(Avg_Spend=mean(Amount)) %>% ungroup()
+  
+knitr::kable(Avg_Spend,caption = "Avg Monthly Spend") %>% kable_styling(full_width = F,position = "left") %>% kableExtra::scroll_box(height = "200px",width = "400px")
+
+# d:Average monthly repay by customers.
+ 
+Avg_repay <-  modified_repay_data %>% 
+              group_by(Customer,Month) %>%
+              summarise(Avg_Repay=mean(Amount)) %>% ungroup()
+
+
+knitr::kable(Avg_repay,caption = "Avg Monthly repay") %>% kable_styling(full_width = F,position = "left" ) %>% kableExtra::scroll_box(height = "200px",width = "400px")
+
+# e:If the monthly rate of interest is 2.9%, what is the profit for the bank for each month? 
+
+month_repay <- modified_repay_data %>% 
+               group_by(Month) %>% 
+               summarise(Monthly_repay = sum(Amount))
+           
+
+month_spend <- Mod_spend_data %>% 
+               group_by(Month) %>% 
+               summarise(Monthly_spend = sum(Amount))
+ 
+ 
+comb_data <- full_join( month_repay ,month_spend,by = "Month")
+ 
+bank_profit <- comb_data %>%
+              mutate(Profit = (Monthly_repay-Monthly_spend) ) %>% 
+              select(1,4) %>% filter(Profit > 0 ) %>% mutate(Bank_Profit = 0.029 * Profit ) %>% 
+              select(-Profit)
+             
+knitr::kable(bank_profit,caption = "Bank_profit ") %>% kable_styling(full_width = F,position = "left" )
+
+# f: Top 5 product types ##
+
+Top_5_prod <- Mod_spend_data %>%
+              group_by(Type) %>% 
+              summarise(total=sum(Amount))%>% 
+              arrange(desc(total)) %>% head(5)
+             
+
+knitr::kable(Top_5_prod) %>% kable_styling(full_width = F,position = "left" )
+
+# g: Which city is having maximum spend?
+  
+max_city_spend <- Mod_spend_data %>% group_by(City) %>% summarise(city_amo = sum(Amount)) %>% 
+                  arrange(desc(city_amo)) %>% select(1) %>% head(1)
+
+paste("City having maximum spend is",max_city_spend)  
+
+
+# h:	Which age group is spending more money?
+
+# Generating labels for age: 
+label <- paste(seq(18,81,8),seq(18+8,82,8),sep = "-")
+ 
+max_spend_ageGrp <- Mod_spend_data %>% 
+                    mutate(Age_group = cut(Mod_spend_data$Age,seq(18,83,8),right = T,labels = label)) %>% 
+                    group_by(Age_group) %>% 
+                    summarise(Amount_spend = sum(Amount)) %>% 
+                    arrange(desc(Amount_spend)) 
+
+ans_h <- max_spend_ageGrp %>% head(1)  
+
+knitr::kable(ans_h) %>% kable_styling(full_width = F,position = "left" )
+
+# Age group 42-50 is spending the highest amount
+
+```
+ #### Ques3:	Calculate the city wise spend on each product on yearly basis. 
+              Also include a graphical representation for the same.
+
+```{r message=F,tidy=TRUE,fig.height=10,fig.width=10,fig.align='center',dpi=200 }
+
+City_wise_spend <- Mod_spend_data %>% 
+                    group_by(City,Product,Year) %>%
+                    summarise(total = sum(Amount))
+
+
+knitr::kable(City_wise_spend  ,caption = "City Wise Spend") %>% kable_styling(full_width = F,position = "left") %>% kableExtra::scroll_box(height = "200px")
+
+      
+city_wise_graph <- City_wise_spend %>% 
+                   ggplot(aes(x = Year,y = total)) +
+                   geom_col(aes(fill = Product),position = position_dodge()) +
+                   facet_grid(.~City) +
+                   theme_bw() +
+                labs(title = "City Wise Spend on Product",subtitle = " 2004-2006 ",y = " Amount Spend",fill = "Product") +
+                scale_y_continuous(labels = scales::label_comma() ,breaks = scales::breaks_pretty())+
+                theme(plot.title = element_text(size = 20,face="bold",hjust = 0.5),
+                      plot.subtitle = element_text(size=15,hjust = 0.5,face="bold"))
+
+
+
+city_wise_graph
+
+```
+
+
+
+#### Ques 4:	Create graphs for :
+```{r message=F,tidy=TRUE,fig.height=8,fig.width=10,fig.align='center',fig.asp=0.618}
+# a.	Monthly comparison of total spends, city wise
+   
+plot1 <-  Mod_spend_data %>%  group_by(Month,City) %>% 
+          summarise(total=sum(Amount)) %>% arrange(desc(total)) %>% 
+          ggplot(( aes(x=(Month),y=(total),fill=reorder(City,total) ))) +
+          geom_col(position = "dodge",color="black") +
+          scale_fill_brewer(type = "qual",palette = "Set1")+
+          theme_bw() +
+          scale_y_continuous(labels = scales::label_comma() , breaks = scales::breaks_pretty()) +
+          theme(plot.title = element_text(size = 20, face = "bold", hjust = 0.5),
+                plot.subtitle = element_text(size = 15, hjust = 0.5 )) +
+          labs(x = "Month",y = "Amount spend",fill="City" ,
+               title = "Monthly Spend By City ",subtitle = "2004-2006")
+   
+plot1
+
+```
+
+
+```{r message=F,tidy=TRUE,fig.height=6,fig.width=6,fig.align='center'}
+
+# b.	Comparison of yearly spend on air tickets
+
+air_ticket_spend <- Mod_spend_data %>%
+                    filter(Type == "AIR TICKET") %>%
+                    group_by(Type, Year) %>%
+                    summarize(Total_spend = sum(Amount)) %>%
+                    ggplot(aes(x = (Year), y = Total_spend)) +
+                    geom_col(aes(fill = as.factor(Year)),color = "black") +
+                    scale_y_continuous(labels = scales::label_comma() , breaks = scales::breaks_pretty()) +
+                    theme(plot.title = element_text(size = 20, face = "bold", hjust = 0.5),
+                          plot.subtitle = element_text(size = 15, hjust = 0.5 ),
+                          legend.position = "none") +
+                    labs(x = "Year",y ="Total Spend",title = "Spend On Air Ticket",subtitle = '2004-2006')+
+                    geom_text(
+                      aes(label = paste0(format(round(Total_spend/1e6,2)),"M")),
+                      color = "red",
+                      vjust = -0.5,
+                      hjust = 0.5,
+                      fontface = "bold")
+
+
+
+air_ticket_spend
+
+```
+
+```{r message=F,tidy=TRUE,fig.height=8,fig.width=10,fig.align='center',fig.asp=0.618}
+
+# c.	Comparison of monthly spend for each product.
+#     (look for any seasonality that exists in terms of spend)
+ 
+
+
+prodSpend_comp_by_month <-    Mod_spend_data %>%
+                              group_by(Month,Product) %>% 
+                              summarise(monthly_spend=sum(Amount)) %>% 
+                              ggplot(aes(x=Product,y=monthly_spend,fill=Month))+
+                              geom_col(position = "dodge")+
+                              labs(title = "Monthly Spend By Product ",subtitle = " 2004-2006 ",y = "Amount Spend")+
+                              scale_y_continuous(labels = scales::label_comma() , breaks = scales::breaks_pretty(10))+
+                              theme(plot.title = element_text(size = 25,face="bold",hjust = 0.5),
+                                    plot.subtitle = element_text(size=15,hjust = 0.5))
+                            
+
+prodSpend_comp_by_month
+
+# High spend was observed in the months of January,February,March and May for all the products.
+# Maximum spend observed in the month of january.
+ 
+
+```
+
+
+#### Ques 5 :  User defined function
+
+```{r message=FALSE}
+
+# Top 10 customers, for each city, in terms of repayment amount 
+# User will provide: A: product type:(Gold/Silver/Platinum) .
+#                     B:Time period: Yearly or monthly.
+
+top_cust <-  function(product,time){
+                         if( product == "Gold" & time == "Month"){
+                           result <-  modified_repay_data %>%
+                                     filter(Product=="Gold") %>%
+                                     group_by(Month,City,Customer) %>%
+                                     summarize(repay_amt=sum(Amount)) %>%
+                                     slice_max(order_by = repay_amt,n=10) %>%
+                                     pivot_wider(names_from = Month,values_from = repay_amt) %>%
+                                     arrange(City)
+                         } else if (product == "Gold" & time == "Year"){
+                           result <-  modified_repay_data %>%
+                                     filter(Product=="Gold") %>%
+                                     group_by(Year,City,Customer) %>%
+                                     summarize(repay_amt=sum(Amount)) %>%
+                                     slice_max(order_by = repay_amt,n=10) %>%
+                                     pivot_wider(names_from = Year,values_from = repay_amt) %>%
+                                     arrange(City)
+                         } else if( product == "Silver" & time == "Month"){
+                           result <-   modified_repay_data %>%
+                                       filter(Product=="Silver") %>%
+                                       group_by(Month,City,Customer) %>%
+                                       summarize(repay_amt=sum(Amount)) %>%
+                                       slice_max(order_by = repay_amt,n=10) %>%
+                                       pivot_wider(names_from = Month,values_from = repay_amt) %>%
+                                       arrange(City)
+                         } else if (product == "Silver" & time == "Year"){
+                           result <- modified_repay_data %>%
+                                     filter(Product=="Silver") %>%
+                                     group_by(Year,City,Customer) %>%
+                                     summarize(repay_amt=sum(Amount)) %>%
+                                     slice_max(order_by = repay_amt,n=10) %>%
+                                     pivot_wider(names_from = Year,values_from = repay_amt) %>%
+                                     arrange(City)
+                         } else if( product == "Platinum" & time == "Month"){
+                           result <- modified_repay_data %>%
+                                      filter(Product=="Platinum") %>%
+                                      group_by(Month,City,Customer) %>%
+                                      summarize(repay_amt=sum(Amount)) %>%
+                                      slice_max(order_by = repay_amt,n=10) %>%
+                                      pivot_wider(names_from = Month,values_from = repay_amt) %>%
+                                      arrange(City)
+                         } else if  (product == "Platinum" & time == "Year"){
+                           result <-   modified_repay_data %>%
+                                        filter(Product=="Platinum") %>%
+                                        group_by(Year,City,Customer) %>%
+                                        summarize(repay_amt=sum(Amount)) %>%
+                                        slice_max(order_by = repay_amt,n=10) %>%
+                                        pivot_wider(names_from = Year,values_from = repay_amt) %>%
+                                        arrange(City)
+                           
+                         }
+                    return(result)
+                      }
+
+```
+
+##### Working of User defined Function:
+
+```{r message=FALSE}
+# When Product = "Silver" and time = "Year"
+
+knitr::kable(top_cust(product = "Silver",time = "Year")) %>% kable_styling(full_width = F,position = "left" ) %>% kableExtra::scroll_box(height = "200px")
+
+
+```
+
+```{r message=FALSE}
+# When Product = "Gold" and time = "Month"
+
+knitr::kable(top_cust("Gold","Month")) %>% kable_styling(full_width = F,position = "left" )%>% kableExtra::scroll_box(height = "200px")
+
+
+```
+
